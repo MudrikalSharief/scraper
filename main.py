@@ -1,18 +1,21 @@
 #   Type in terminal
 # pip install virtualenv	
-# virtuaenv env
+# virtualenv env
 # .\env\Scripts\activate.ps1
+#
 # if the env is active insall
+#
 # pip install linkedin-api
 # pip install pandas openpyxl
+# pip install selenium
 #
-#put in the same folder as this file the excel file with the name must be "linkedin_profiles.xlsx
+# put in the same folder as this file the excel file with the name must be "linkedin_profiles.xlsx
 # the excel file must have a column with the name "username" or the first column will be used
 #
 #
 from linkedin_api import Linkedin
-import json
 import pandas as pd
+import json
 
 # Read LinkedIn usernames from Excel file
 try:
