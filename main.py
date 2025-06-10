@@ -22,7 +22,11 @@ RESULTS_FILE = "linkedin_profiles_results.csv"
 
 def get_first_linkedin_profile(name, school):
     """Search for a LinkedIn profile using SerpAPI and return the first match."""
-    query = f'site:linkedin.com/in/ "{name}" "{school}"'
+    # Clean the name by removing middle initials (single letters followed by periods)
+    cleaned_name = re.sub(r'\b[A-Z]\.\s*', '', name)
+    print(f"Original name: '{name}', Cleaned name: '{cleaned_name}'")
+    
+    query = f'site:linkedin.com/in/ "{cleaned_name}" "{school}"'
     
     try:
         search = GoogleSearch({
@@ -39,7 +43,7 @@ def get_first_linkedin_profile(name, school):
                 if match:
                     username = match.group(1)
                     # Convert both to lowercase and remove spaces/special characters for comparison
-                    normalized_name = re.sub(r'[^a-z0-9]', '', name.lower())
+                    normalized_name = re.sub(r'[^a-z0-9]', '', cleaned_name.lower())
                     normalized_username = re.sub(r'[^a-z0-9]', '', username.lower())
                     
                     # Check if at least part of the name appears in the username
@@ -53,7 +57,7 @@ def get_first_linkedin_profile(name, school):
                             break
                     
                     # Also check if first letter of first and last name match pattern in username
-                    name_words = name.lower().split()
+                    name_words = cleaned_name.lower().split()
                     if len(name_words) >= 2:
                         first_initial = name_words[0][0] if name_words[0] else ""
                         last_initial = name_words[-1][0] if name_words[-1] else ""
@@ -63,13 +67,13 @@ def get_first_linkedin_profile(name, school):
                             name_in_link = True
                     
                     if name_in_link:
-                        print(f"Found matching profile for {name}: {link}")
+                        print(f"Found matching profile for {cleaned_name}: {link}")
                         return link
                     else:
-                        print(f"Found profile but name verification failed. Link: {link}, Name: {name}")
+                        print(f"Found profile but name verification failed. Link: {link}, Name: {cleaned_name}")
                         # Continue searching for a better match
     except Exception as e:
-        print(f"SerpAPI search error for {name}: {str(e)}")
+        print(f"SerpAPI search error for {cleaned_name}: {str(e)}")
     
     return "NONE"
 
