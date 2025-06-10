@@ -229,7 +229,10 @@ def get_profile_details(profiles, email, password):
                             "firstName": "",
                             "lastName": "",
                             "Latest job title": "Data retrieval error",
-                            "Company": ""
+                            "Company": "",
+                            "Role": "",
+                            "Employment_Date": "",
+                            "Education": ""
                         })
                         continue
                         
@@ -241,7 +244,10 @@ def get_profile_details(profiles, email, password):
                         "firstName": "",
                         "lastName": "",
                         "Latest job title": "Rate limited",
-                        "Company": ""
+                        "Company": "",
+                        "Role": "",
+                        "Employment_Date": "",
+                        "Education": ""
                     })
                     print("Taking a longer break (30 seconds) due to possible rate limiting...")
                     time.sleep(30)
@@ -253,15 +259,88 @@ def get_profile_details(profiles, email, password):
                     "firstName": profile_data.get("firstName", ""),
                     "lastName": profile_data.get("lastName", ""),
                     "Latest job title": "",
-                    "Company": ""
+                    "Company": "",
+                    "Role": "",
+                    "Employment_Date": "",
+                    "Education": ""
                 }
                 
                 # Get the latest job information
                 if profile_data.get("experience") and len(profile_data["experience"]) > 0:
                     # Experience entries are typically ordered with most recent first
                     latest_job = profile_data["experience"][0]
-                    simplified_data["Latest job title"] = latest_job.get("title", "")
-                    simplified_data["Company"] = latest_job.get("companyName", "")
+                    simplified_data["Latest job title"] = latest_job.get("title", "") or "NONE"
+                    simplified_data["Company"] = latest_job.get("companyName", "") or "NONE"
+                    
+                    # Extract role information (description of job)
+                    simplified_data["Role"] = latest_job.get("description", "") or "NONE"
+                    
+                    # Extract employment dates
+                    time_period = latest_job.get("timePeriod", {})
+                    start_date = time_period.get("startDate", {})
+                    end_date = time_period.get("endDate", {})
+                    
+                    start_str = ""
+                    if start_date:
+                        month = start_date.get("month", "")
+                        year = start_date.get("year", "")
+                        if month and year:
+                            start_str = f"{month}/{year}"
+                        elif year:
+                            start_str = f"{year}"
+                    
+                    end_str = "Present"
+                    if end_date:
+                        month = end_date.get("month", "")
+                        year = end_date.get("year", "")
+                        if month and year:
+                            end_str = f"{month}/{year}"
+                        elif year:
+                            end_str = f"{year}"
+                    
+                    date_range = f"{start_str} - {end_str}" if start_str else ""
+                    simplified_data["Employment_Date"] = date_range or "NONE"
+                else:
+                    # No experience data available
+                    simplified_data["Latest job title"] = "NONE"
+                    simplified_data["Company"] = "NONE"
+                    simplified_data["Role"] = "NONE"
+                    simplified_data["Employment_Date"] = "NONE"
+                
+                # Get the education information
+                education_list = []
+                if profile_data.get("education"):
+                    for edu in profile_data["education"]:
+                        school_name = edu.get("schoolName", "")
+                        degree_name = edu.get("degreeName", "")
+                        field_of_study = edu.get("fieldOfStudy", "")
+                        
+                        # Format the education entry
+                        education_entry = []
+                        if school_name:
+                            education_entry.append(school_name)
+                        if degree_name:
+                            education_entry.append(degree_name)
+                        if field_of_study:
+                            education_entry.append(field_of_study)
+                            
+                        # Add dates if available
+                        time_period = edu.get("timePeriod", {})
+                        start_year = time_period.get("startDate", {}).get("year", "")
+                        end_year = time_period.get("endDate", {}).get("year", "")
+                        
+                        if start_year and end_year:
+                            education_entry.append(f"({start_year}-{end_year})")
+                        elif start_year:
+                            education_entry.append(f"(Started {start_year})")
+                        elif end_year:
+                            education_entry.append(f"(Graduated {end_year})")
+                        
+                        if education_entry:  # Only add if there's actual content
+                            education_list.append(" - ".join(education_entry))
+
+                # Join all education entries with a separator
+                simplified_data["Education"] = " | ".join(education_list) if education_list else "NONE"
                 
                 results.append(simplified_data)
                 print(f"Successfully processed {profile}")
@@ -280,7 +359,10 @@ def get_profile_details(profiles, email, password):
                     "firstName": "",
                     "lastName": "",
                     "Latest job title": f"Error: {str(e)[:50]}",
-                    "Company": ""
+                    "Company": "",
+                    "Role": "",
+                    "Employment_Date": "",
+                    "Education": ""
                 })
                 
                 # If we get multiple errors in sequence, take a very long break
@@ -318,6 +400,11 @@ def save_results_to_excel(results, excel_path):
             df['Job_Title'] = None
         if 'Company' not in df.columns:
             df['Company'] = None
+        # Removed Role column
+        if 'Employment_Date' not in df.columns:
+            df['Employment_Date'] = None
+        if 'Education' not in df.columns:
+            df['Education'] = None
         
         # Create a lookup dictionary for easier matching
         profile_data = {}
@@ -325,7 +412,10 @@ def save_results_to_excel(results, excel_path):
             username = result.get('username', '')
             profile_data[username] = {
                 'job_title': result.get('Latest job title', 'NONE'),
-                'company': result.get('Company', 'NONE')
+                'company': result.get('Company', 'NONE'),
+                # Removed role from the dictionary
+                'employment_date': result.get('Employment_Date', 'NONE'),
+                'education': result.get('Education', 'NONE')
             }
         
         # Add data to the Excel file based on matching usernames
@@ -350,6 +440,9 @@ def save_results_to_excel(results, excel_path):
             if username and username in profile_data:
                 df.at[index, 'Job_Title'] = profile_data[username]['job_title']
                 df.at[index, 'Company'] = profile_data[username]['company']
+                # Removed setting Role column value
+                df.at[index, 'Employment_Date'] = profile_data[username]['employment_date']
+                df.at[index, 'Education'] = profile_data[username]['education']
         
         # Save the updated DataFrame back to the Excel file
         try:
