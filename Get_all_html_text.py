@@ -43,11 +43,16 @@ def download_image(img_url, folder='downloaded_images'):
         filename = os.path.basename(urlparse(img_url).path)
         if not filename:
             filename = f"image_{hash(img_url)}.jpg"
+        
+        # Check if image already exists in folder
+        file_path = os.path.join(folder, filename)
+        if os.path.exists(file_path):
+            print(f"Image already exists: {filename}")
+            return "duplicate"
             
         # Download the image
         img_response = requests.get(img_url, stream=True)
         if img_response.status_code == 200:
-            file_path = os.path.join(folder, filename)
             with open(file_path, 'wb') as f:
                 for chunk in img_response.iter_content(1024):
                     f.write(chunk)
@@ -60,30 +65,56 @@ def download_image(img_url, folder='downloaded_images'):
         print(f"Error downloading image {img_url}: {e}")
         return None
 
-def get_image_urls(soup):
+def get_image_urls(soup, url, folder='downloaded_images'):
+    """Extract image URLs from soup and check if they've already been downloaded"""
     images = []
+    downloaded_filenames = set()
+    
+    # Get list of already downloaded files
+    if os.path.exists(folder):
+        downloaded_filenames = set(os.listdir(folder))
+    
     # Find all image tags and extract their URLs and alt text
     if not soup:
         print("No soup object provided.")
         return images
     
+    seen_urls = set()  # Track URLs we've already seen in this page
+    
     for img in soup.find_all('img'):
         img_url = img.get('src')
-
-        if img_url in images:
+        
+        if not img_url:
+            continue
+            
+        # Handle relative URLs
+        if img_url.startswith('/'):
+            img_url = url.rstrip('/') + img_url
+        # Handle protocol-relative URLs
+        elif img_url.startswith('//'):
+            img_url = 'https:' + img_url
+        elif not (img_url.startswith('http://') or img_url.startswith('https://')):
+            img_url = url.rstrip('/') + '/' + img_url.lstrip('/')
+            
+        # Skip if we've seen this URL before
+        if img_url in seen_urls:
             print(f"Skipping duplicate image URL: {img_url}")
             continue
-
-        if img_url:
-            # Handle relative URLs
-            if img_url.startswith('/'):
-                img_url = url.rstrip('/') + img_url
-            # Handle protocol-relative URLs
-            elif img_url.startswith('//'):
-                img_url = 'https:' + img_url
+        
+        seen_urls.add(img_url)
+        
+        # Check if image is already downloaded by comparing filenames
+        filename = os.path.basename(urlparse(img_url).path)
+        if not filename:
+            filename = f"image_{hash(img_url)}.jpg"
             
-            img_alt = img.get('alt', '')
-            images.append({'url': img_url, 'alt': img_alt})
+        if filename in downloaded_filenames:
+            print(f"Image already downloaded: {filename}")
+            continue
+            
+        # Add the image to our list
+        img_alt = img.get('alt', '')
+        images.append({'url': img_url, 'alt': img_alt})
     
     return images
 
@@ -108,7 +139,7 @@ def get_all_html_text(url):
 
             #get all images from the website
             
-            images = get_image_urls(soup)
+            images = get_image_urls(soup, url)
             if not images:
                 print("No images found on the page.")
                 images = []
@@ -138,7 +169,7 @@ def get_all_html_text(url):
         return None
 
 
-def save_text_to_file(text, filename, append=False, folder='downloaded_texts'):
+def save_text_to_file(text, filename, append=True, folder='downloaded_texts'):
     """Save the provided text to a text file in the specified folder."""
     try:
         # Create folder if it doesn't exist
@@ -149,15 +180,29 @@ def save_text_to_file(text, filename, append=False, folder='downloaded_texts'):
         if not filename.endswith('.txt'):
             filename += '.txt'
             
+        # Check if file exists and add incremental number if needed
+        base_name = os.path.splitext(filename)[0]  # Get filename without extension
+        extension = os.path.splitext(filename)[1]  # Get extension (.txt)
+        counter = 1
+        
         file_path = os.path.join(folder, filename)
+        while os.path.exists(file_path) and not append:
+            # If file exists and we're not appending, create a new filename
+            filename = f"{base_name}_{counter}{extension}"
+            file_path = os.path.join(folder, filename)
+            counter += 1
         
         # Write text to file - use 'a' for append mode or 'w' for write mode
         mode = 'a' if append else 'w'
         with open(file_path, mode, encoding='utf-8') as f:
-            f.write(text)
+            for i, t in enumerate(text):
+                if i > 0:  # Add separators between texts if needed
+                    f.write("\n\n")
+                f.write(t)
             
         action = "appended to" if append else "saved to"
         print(f"Text {action} {file_path}")
+
         return file_path
     
     except Exception as e:
@@ -235,7 +280,7 @@ if nav_list:
 
 # Process each navigation link with proper rate limiting
 processed_urls = set()  # Track URLs we've already processed
-
+counter = 1
 for i, nav in enumerate(nav_list):
     nav_url = nav['Website URL']
     
@@ -256,15 +301,19 @@ for i, nav in enumerate(nav_list):
     print(f"Waiting {delay:.2f} seconds before next request...")
     time.sleep(delay)
     
-    # Get content from the navigation URL (not the original URL)
+    
     try:
         
         content = get_all_html_text(nav_url)
-        texts.append(content['text'] if content and 'text' in content else '')
+        # Add URL as context before the content for better organization
+        if content and 'text' in content:
+            content_text = f"SOURCE URL: {nav_url}\n{content['text']}\n\n"
+            content['text'] = content_text
+        texts.append(content['text'])
         processed_urls.add(nav_url)
         
         if content:
-            save_text_to_file(content['text'], ''.join(nav_url.split('/')[2:]))
+            
 
             print(f"Successfully retrieved content from {nav_url}")
             # Process the content as needed
@@ -281,7 +330,13 @@ for i, nav in enumerate(nav_list):
                     img_url = img['url']
                     saved_path = download_image(img_url)
                     if saved_path:
-                        print(f" Downloaded: {img_url}")
+                        if saved_path == "duplicate":
+                            print(f" Image already exists: {img_url}")
+                        else:
+                            print(f" Image saved to: {saved_path}")
+                    else:
+                        print(f"Failed to download image: {img_url}")
+
                     time.sleep(1)  # 1 second between image downloads
         else:
             print(f"Failed to retrieve content from {nav_url}")
@@ -295,4 +350,11 @@ for i, nav in enumerate(nav_list):
     except Exception as e:
         print(f"Error processing {nav_url}: {e}")
 
-    break  # Remove this break to process all links
+
+    
+    counter += 1
+    # if counter > 2:
+    #     print("Processed 2 URLs, exiting to avoid rate limiting issues.")
+    #     break
+
+save_text_to_file(texts, 'Name of the Journal')

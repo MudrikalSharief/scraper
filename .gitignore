@@ -2,3 +2,6 @@
 .env
 .env.local
 .env.*
+
+downloaded_images/
+downloaded_texts/
