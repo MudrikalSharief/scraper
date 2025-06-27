@@ -298,5 +298,6 @@ def save_text_to_file( file_name, append=False, folder='downloaded_texts'):
 # Main execution
 if __name__ == "__main__":
     
-    save_text_to_file('Academic Research Reviews', append=True, folder='downloaded_texts')
+    # save_text_to_file('Academy of Contemporary Research Journal', append=True, folder='downloaded_texts')
+    print(generate(get_text_from_folder('downloaded_texts', file_name='Academy of Contemporary Research Journal')))
     

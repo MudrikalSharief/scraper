@@ -76,29 +76,29 @@ def generate(text, journal_name, website_url):
 
     extraction_rules = """
     1.  **Journal Name:** The full name of the journal.
-    2.  **Publisher Name:** The name of the organization that publishes the journal.
-    3.  **ISSN:** The International Standard Serial Number (can be print ISSN, online ISSN, or both).
+    2.  **Publisher Name:** The name of the organization that publishes the journal. if not mentioned, state \"NONE\".
+    3.  **ISSN:** The International Standard Serial Number (can be print ISSN or online ISSN just select one and dont stae if online or printed just the number), if not found state NONE.
     4.  **Website URL:** The primary URL of the journal's website (this should be the URL the input text came from).
     5.  **Editorial Board Members:** (Listed, Unknown) - Is a list of editorial board members explicitly available and clearly presented if yes then put listed else put unknown?
-    6.  **Peer Review Process:** (Single Blind, Double Blind, Open Peer Review, Unknown) - How does the journal describe its peer review process?
+    6.  **Peer Review Process:** (Single Blind, Double Blind, Open Peer Review, Unknown) - How does the journal describe its peer review process? if not mentioned or unclear, state \"Unknown\".
     7.  **Publishing Model:** (Open Access, Subscription, Unknown) - How does the journal make its content available?
-    8.  **Publication Fees/Article Processing Fees:** The amount or range of fees charged to authors. If \"No fees,\" state \"0\". If present but specific amount unknown, state \"-1\". If not mentioned, state \"-1\".
+    8.  **Publication Fees/Article Processing Fees:** The amount or range of fees charged to authors. If \"No fees,\" state \"0\". If present but specific amount unknown, state \"-1\". If not mentioned, state \"-1\" please only get payment with dollar or $ if not in dollar please convert it to dollar. type it like this $300.
     9.  **Publication Frequency:** (Weekly, Monthly, Twice a month, Quarterly, Twice every quarter, Yearly, Twice a year, 3 times a year, Unknown) - How often does the journal publish new issues?
     10. **DOI Availability:** (Yes, No, Unknown) - Does the journal explicitly mention assigning DOIs (Digital Object Identifiers) to its articles?
     11. **Indexing:** (Scopus, Web of Science, DOAJ, Google, Others, Unknown) - put only 1 prioritize the order given explicitly mentioned indexing services. If \"Others\" is chosen state \"Others\", state \"Unknown\".
     12. **Editorial Process Transparency:** (Listed, Unknown) - Is the editorial process (beyond peer review) clearly described and transparently presented on the website?
     13. **Journal's Scope & Aims:** (Domain-specific, Multi-disciplinary, Broad, Unknown) - Select the journal's stated scope and aims from the following options: Domain-specific, Multi-disciplinary, Broad, Unknown.
     14. **Calls for Papers (CFPs):** (Weekly, Monthly, Twice a Month, Quarterly, Twice every Quarter, Yearly, Twice a Year, 3 Times a Year, Unknown) - How often does the journal issue calls for papers?
-    15. **Year Established:** The year the journal was founded or first published.
+    15. **Year Established:** The year the journal was founded or first published. if not stated, state \"-1\". If the year is mentioned but not specific, use \"-1\". If the journal is newly established and the year is not mentioned, also use \"-1\".
     16. **Journal's Acceptance Rate:** The stated acceptance rate (e.g., \"30%\"). If not stated, \"Unknown\".
-    17. **Publication Days:** The typical number of days from submission to publication. If not stated or cannot be confidently inferred, \"Unknown\".
-    18. **Cite Score:** The journal's stated CiteScore. If not stated, \"Unknown\".
-    19. **Impact Factor:** find the journal's stated Impact Factor, \"Unknown\".
+    17. **Publication Days:** The typical number of days from submission to publication, if separated please add them. If not stated or cannot be confidently inferred, \"Unknown\".
+    18. **Cite Score:** The journal's stated CiteScore. If not stated, state \"-1\".
+    19. **Impact Factor:** find the journal's stated Impact Factor, if not stated state\"-1\".
     20. **Include Author Guidelines:** (Yes, No, Unknown) - Are clear guidelines for authors explicitly provided on the website?
     21. **Submission Process:** (System, Email, Unknown) - How do authors submit their manuscripts? (e.g., through an online submission system, via email).
     22. **Publication Ethics:** (Listed, Unknown) - Does the journal have a clearly stated section on publication ethics or adherence to ethical guidelines (e.g., COPE)?
     23. **University Affiliation:** (Yes, No, Unknown) - Does the journal claim or show a clear affiliation with a university?
-    24. **Name of University:** (If \"University Affiliation\" is \"Yes\", state the full name of the university. Otherwise, put \"NONE\").
+    24. **Name of University:** (If \"University Affiliation\" is \"Yes\", state the full name of the university just put 1 university incase there are more than 1  . Otherwise, put \"NONE\").
 
     ---
 
@@ -206,50 +206,93 @@ def get_empty_gemini_row(journal_name, website_url):
         "Name of University": "NONE"
     }
 
-def is_text_empty_or_none(text):
+def is_text_empty_or_none(text=None, file_name=None, folder_path='downloaded_texts'):
     """
     Returns True if the text is empty, contains only whitespace, or contains 'NONE' (case-insensitive).
-    Otherwise, returns False.
+    Can check either a direct text input or a file inside the specified folder.
     """
-    if not text or str(text).strip() == "" or str(text).strip().upper() == "NONE":
-        return True
-    return False
+    # If text is directly provided
+    if text is not None:
+        if not text or str(text).strip() == "" or str(text).strip().upper() == "NONE":
+            return True
+        return False
+    
+    # If file_name is provided, read the file and check its content
+    if file_name is not None:
+        file_path = os.path.join(folder_path, file_name)
+        if not file_name.endswith('.txt'):
+            file_path += '.txt'
+        
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                    if not content or content.strip() == "" or content.strip().upper() == "NONE":
+                        return True
+                return False
+            else:
+                print(f"File not found: {file_path}")
+                return True  # Consider a non-existent file as empty
+        except Exception as e:
+            print(f"Error reading file {file_path}: {e}")
+            return True  # Consider error in file reading as empty
+    
+    # Default case if neither text nor file_name is provided
+    return True
 
 def get_text_from_folder(folder_path = 'downloaded_texts', file_name='Name of the Journal'):
     
     specific_file = file_name  # Replace with your specific file name
     
+    if specific_file.endswith('.txt'):
+        specific_file = specific_file
+    else:
+        specific_file = specific_file + '.txt'
 
     file_path = os.path.join(folder_path, specific_file)
+    print(f"Looking for file: {file_path}")
+
     if os.path.exists(file_path) and file_path.endswith(".txt"):
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 text_content = file.read()
             print(f"Processing file: {specific_file}")
+            return text_content
         except Exception as e:
             print(f"Error reading file {specific_file}: {e}")
             text_content = ""
+            return False
     else:
         print(f"File not found or not a text file: {specific_file}")
         text_content = ""
+        return False
 
 def save_json_to_excel(journal_name, website_url, excel_name, folder='downloaded_texts'):
     
     text_content = get_text_from_folder(folder, file_name=journal_name)
 
-    if is_text_empty_or_none(text_content):
+    if is_text_empty_or_none(text=text_content, file_name=journal_name, folder_path=folder):
         print("Text is empty or contains NONE")
         # Save a blank row with correct defaults
         save_to_excel(get_empty_gemini_row(journal_name, website_url), excel_name)
     else:
         response = generate(text_content, journal_name, website_url)
-        json_data = extract_json_from_response(response)
+        if response:
+            json_data = extract_json_from_response(response)
         
-        if json_data:
-            save_to_excel(json_data)
-        else:
-            print("Failed to extract valid JSON data from response")
-            save_to_excel(get_empty_gemini_row(journal_name, website_url))
+            # Ensure the key fields are populated with provided values if they're missing
+            if json_data:
+                if not json_data.get("Journal Name") or json_data["Journal Name"] == "NONE":
+                    json_data["Journal Name"] = journal_name
+                
+                if not json_data.get("Website URL") or json_data["Website URL"] == "NONE":
+                    json_data["Website URL"] = website_url
+            
+            if json_data:
+                save_to_excel(json_data, excel_name)
+            else:
+                print("Failed to extract valid JSON data from response")
+                save_to_excel(get_empty_gemini_row(journal_name, website_url),excel_name)
             
 # here the function to save the text to a fil=======================================================================
 def header():
@@ -402,7 +445,7 @@ def get_all_nav_links(url):
                     'Website URL': href
                     })
 
-            return nav_links
+            return nav_links[:30]  # Limit to the first 30 links
         else:
             print(f"Failed to retrieve the page. Status code: {response.status_code}")
             return None
@@ -482,14 +525,16 @@ def update_journal_status(excel_file, journal_name, status="Done", name_col="Jou
         return False
 
 if __name__ == "__main__":
+
+    
     # Example usage of the functions
     journal_list_excel = 'journal_list.xlsx'  # Path to your Excel file with journal names and URLs
     journal_data_excel = 'journal_data.xlsx'  # Path to save the journal data
   
     # Fetch journal name and URL pairs from the Excel file
     journal_list = fetch_journal_name_url_pairs(journal_list_excel)
-    ten_only = journal_list[:2]  # Get only the first 10 entries
-
+    ten_only = journal_list[:100]  # Get only the first 10 entries
+    max_nav = 30  # Set the maximum number of entries to process
     print(f"Total journals found: {len(ten_only)}")
 
     print("First 10 Journal Entries:")
@@ -520,8 +565,13 @@ if __name__ == "__main__":
             save_json_to_excel(journal_name, website_url, excel_name=journal_data_excel, folder='downloaded_texts')
             update_journal_status(journal_list_excel, journal_name, status="Done", name_col="Journal Name", status_col="Status")
             continue
-
+        
+        nav_count = 0
         for i, nav in enumerate(nav_list):
+            if nav_count >= max_nav:
+                print(f"Reached maximum navigation links to process: {max_nav}")
+                break
+            nav_count += 1
             nav_url = nav['Website URL']
             
             # Skip if we've already processed this URL
@@ -569,6 +619,7 @@ if __name__ == "__main__":
 
             
             counter += 1
+            
 
         save_text_to_file(texts, journal_name, append=True, folder='downloaded_texts')
 
