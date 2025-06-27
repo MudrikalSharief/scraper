@@ -3,9 +3,255 @@ import random
 import requests
 import os
 import time
+import socket
 from urllib.robotparser import RobotFileParser
 from urllib.parse import urlparse
+import pandas as pd
 
+import json
+import re
+from google import genai
+from google.genai import types
+import dotenv
+from dotenv import load_dotenv
+from PIL import Image # Import Pillow
+load_dotenv()
+
+#gemini part function ==============================================================================
+
+
+
+
+def generate(text, journal_name, website_url):
+    """Generate content using only text (no images)"""
+    client = genai.Client(
+        api_key=os.environ.get("GeminiKey"),
+    )
+
+    prompt_part1 = f"""
+    You are an expert AI Journal Scraper and Data Extractor. Your task is to analyze the provided text from a journal's website and extract specific information about it.
+
+    Your goal is to fill in the details for the following fields. For fields with predefined choices, you MUST select one of the provided options. If information for a field is not explicitly found or cannot be confidently inferred from the text, mark its value as \"Unknown\" or \"Not Applicable\" where specified.
+
+    Present the extracted information in a structured JSON format.
+
+    ---
+
+    **
+    {text}
+    **
+
+    ---
+
+    **Extraction Fields and Rules:**
+    """
+
+    json_template = f"""```json
+    {{
+      "Journal Name": "{journal_name}",
+      "Publisher Name": "...",
+      "ISSN": "...",
+      "Website URL": "{website_url}",
+      "Editorial Board Members": "...",
+      "Peer Review Process": "...",
+      "Publishing Model": "...",
+      "Publication Fees/Article Processing Fees": "...",
+      "Publication Frequency": "...",
+      "DOI Availability": "...",
+      "Indexing": "...",
+      "Editorial Process Transparency": "...",
+      "Journal's Scope & Aims": "...",
+      "Calls for Papers (CFPs)": "...",
+      "Year Established": "...",
+      "Journal's Acceptance Rate": "...",
+      "Publication Days": "...",
+      "Cite Score": "...",
+      "Impact Factor": "...",
+      "Include Author Guidelines": "...",
+      "Submission Process": "...",
+      "Publication Ethics": "...",
+      "University Affiliation": "...",
+      "Name of University": "..."
+    }}```"""
+
+    extraction_rules = """
+    1.  **Journal Name:** The full name of the journal.
+    2.  **Publisher Name:** The name of the organization that publishes the journal.
+    3.  **ISSN:** The International Standard Serial Number (can be print ISSN, online ISSN, or both).
+    4.  **Website URL:** The primary URL of the journal's website (this should be the URL the input text came from).
+    5.  **Editorial Board Members:** (Listed, Unknown) - Is a list of editorial board members explicitly available and clearly presented if yes then put listed else put unknown?
+    6.  **Peer Review Process:** (Single Blind, Double Blind, Open Peer Review, Unknown) - How does the journal describe its peer review process?
+    7.  **Publishing Model:** (Open Access, Subscription, Unknown) - How does the journal make its content available?
+    8.  **Publication Fees/Article Processing Fees:** The amount or range of fees charged to authors. If \"No fees,\" state \"0\". If present but specific amount unknown, state \"-1\". If not mentioned, state \"-1\".
+    9.  **Publication Frequency:** (Weekly, Monthly, Twice a month, Quarterly, Twice every quarter, Yearly, Twice a year, 3 times a year, Unknown) - How often does the journal publish new issues?
+    10. **DOI Availability:** (Yes, No, Unknown) - Does the journal explicitly mention assigning DOIs (Digital Object Identifiers) to its articles?
+    11. **Indexing:** (Scopus, Web of Science, DOAJ, Google, Others, Unknown) - put only 1 prioritize the order given explicitly mentioned indexing services. If \"Others\" is chosen state \"Others\", state \"Unknown\".
+    12. **Editorial Process Transparency:** (Listed, Unknown) - Is the editorial process (beyond peer review) clearly described and transparently presented on the website?
+    13. **Journal's Scope & Aims:** (Domain-specific, Multi-disciplinary, Broad, Unknown) - Select the journal's stated scope and aims from the following options: Domain-specific, Multi-disciplinary, Broad, Unknown.
+    14. **Calls for Papers (CFPs):** (Weekly, Monthly, Twice a Month, Quarterly, Twice every Quarter, Yearly, Twice a Year, 3 Times a Year, Unknown) - How often does the journal issue calls for papers?
+    15. **Year Established:** The year the journal was founded or first published.
+    16. **Journal's Acceptance Rate:** The stated acceptance rate (e.g., \"30%\"). If not stated, \"Unknown\".
+    17. **Publication Days:** The typical number of days from submission to publication. If not stated or cannot be confidently inferred, \"Unknown\".
+    18. **Cite Score:** The journal's stated CiteScore. If not stated, \"Unknown\".
+    19. **Impact Factor:** find the journal's stated Impact Factor, \"Unknown\".
+    20. **Include Author Guidelines:** (Yes, No, Unknown) - Are clear guidelines for authors explicitly provided on the website?
+    21. **Submission Process:** (System, Email, Unknown) - How do authors submit their manuscripts? (e.g., through an online submission system, via email).
+    22. **Publication Ethics:** (Listed, Unknown) - Does the journal have a clearly stated section on publication ethics or adherence to ethical guidelines (e.g., COPE)?
+    23. **University Affiliation:** (Yes, No, Unknown) - Does the journal claim or show a clear affiliation with a university?
+    24. **Name of University:** (If \"University Affiliation\" is \"Yes\", state the full name of the university. Otherwise, put \"NONE\").
+
+    ---
+
+    **Output Format (JSON):**"""
+
+    parts = [
+        types.Part(text=prompt_part1),
+        types.Part(text=extraction_rules),
+        types.Part(text=json_template)
+    ]
+
+    model = "gemini-2.5-flash"
+
+    contents = [
+        types.Content(
+            role="user",
+            parts=parts
+        ),
+    ]
+
+    generate_content_config = types.GenerateContentConfig(
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=0,
+        ),
+        response_mime_type="text/plain",
+    )
+
+    full_response = ""
+    try:
+        for chunk in client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=generate_content_config,
+        ):
+            print(chunk.text, end="")
+            full_response += chunk.text
+    except Exception as e:
+        print(f"\nError during Gemini API call: {e}")
+
+    return full_response
+
+def extract_json_from_response(response_text):
+    """Extract JSON from the Gemini response text"""
+    json_pattern = r"```json\s*(.*?)```"
+    json_match = re.search(json_pattern, response_text, re.DOTALL)
+    
+    if json_match:
+        json_str = json_match.group(1).strip()
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON: {e}")
+            print(f"JSON string that failed to parse: {json_str}")
+            return None
+    else:
+        print("No JSON found in response")
+        return None
+
+def save_to_excel(json_data, output_file):
+    """Save the extracted JSON data to an Excel file, appending if file exists."""
+    try:
+        new_df = pd.DataFrame([json_data])
+
+        if os.path.exists(output_file):
+            try:
+                existing_df = pd.read_excel(output_file)
+                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            except Exception as e:
+                print(f"Error reading existing Excel file: {e}")
+                combined_df = new_df
+        else:
+            combined_df = new_df
+
+        combined_df.to_excel(output_file, index=False)
+        print(f"Data successfully saved to {output_file}")
+
+    except Exception as e:
+        print(f"Error saving to Excel: {e}")
+
+def get_empty_gemini_row(journal_name, website_url):
+    return {
+        "Journal Name": journal_name,
+        "Publisher Name": "NONE",
+        "ISSN": "NONE",
+        "Website URL": website_url,
+        "Editorial Board Members": "Unknown",
+        "Peer Review Process": "Unknown",
+        "Publishing Model": "Unknown",
+        "Publication Fees/Article Processing Fees": -1,
+        "Publication Frequency": "Unknown",
+        "DOI Availability": "Unknown",
+        "Indexing": "Unknown",
+        "Editorial Process Transparency": "Unknown",
+        "Journal's Scope & Aims": "Unknown",
+        "Calls for Papers (CFPs)": "Unknown",
+        "Year Established": -1,
+        "Journal's Acceptance Rate": "Unknown",
+        "Publication Days": "Unknown",
+        "Cite Score": -1,
+        "Impact Factor": -1,
+        "Include Author Guidelines": "Unknown",
+        "Submission Process": "Unknown",
+        "Publication Ethics": "Unknown",
+        "University Affiliation": "Unknown",
+        "Name of University": "NONE"
+    }
+
+def is_text_empty_or_none(text):
+    """
+    Returns True if the text is empty, contains only whitespace, or contains 'NONE' (case-insensitive).
+    Otherwise, returns False.
+    """
+    if not text or str(text).strip() == "" or str(text).strip().upper() == "NONE":
+        return True
+    return False
+
+def get_text_from_folder(folder_path = 'downloaded_texts', file_name='Name of the Journal'):
+    
+    specific_file = file_name  # Replace with your specific file name
+    
+
+    file_path = os.path.join(folder_path, specific_file)
+    if os.path.exists(file_path) and file_path.endswith(".txt"):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                text_content = file.read()
+            print(f"Processing file: {specific_file}")
+        except Exception as e:
+            print(f"Error reading file {specific_file}: {e}")
+            text_content = ""
+    else:
+        print(f"File not found or not a text file: {specific_file}")
+        text_content = ""
+
+def save_json_to_excel(journal_name, website_url, excel_name, folder='downloaded_texts'):
+    
+    text_content = get_text_from_folder(folder, file_name=journal_name)
+
+    if is_text_empty_or_none(text_content):
+        print("Text is empty or contains NONE")
+        # Save a blank row with correct defaults
+        save_to_excel(get_empty_gemini_row(journal_name, website_url), excel_name)
+    else:
+        response = generate(text_content, journal_name, website_url)
+        json_data = extract_json_from_response(response)
+        
+        if json_data:
+            save_to_excel(json_data)
+        else:
+            print("Failed to extract valid JSON data from response")
+            save_to_excel(get_empty_gemini_row(journal_name, website_url))
+            
+# here the function to save the text to a fil=======================================================================
 def header():
     headers_list = [
         {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"},
@@ -17,106 +263,6 @@ def header():
 
     headers = random.choice(headers_list)
     return headers
-
-def is_allowed_by_robots(url):
-    """Check if the URL is allowed by robots.txt"""
-    try:
-        parsed_url = urlparse(url)
-        robots_url = f"{parsed_url.scheme}://{parsed_url.netloc}/robots.txt"
-        
-        parser = RobotFileParser()
-        parser.set_url(robots_url)
-        parser.read()
-        
-        return parser.can_fetch("*", url)
-    except Exception as e:
-        print(f"Error checking robots.txt: {e}")
-        return True  # Default to allowing in case of error
-    
-def download_image(img_url, folder='downloaded_images'):
-    try:
-        # Create folder if it doesn't exist
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-            
-        # Extract filename from URL
-        filename = os.path.basename(urlparse(img_url).path)
-        if not filename:
-            filename = f"image_{hash(img_url)}.jpg"
-        
-        # Check if image already exists in folder
-        file_path = os.path.join(folder, filename)
-        if os.path.exists(file_path):
-            print(f"Image already exists: {filename}")
-            return "duplicate"
-            
-        # Download the image
-        img_response = requests.get(img_url, stream=True)
-        if img_response.status_code == 200:
-            with open(file_path, 'wb') as f:
-                for chunk in img_response.iter_content(1024):
-                    f.write(chunk)
-            return file_path
-        else:
-            print(f"Failed to download image: {img_url}")
-            return None
-        
-    except Exception as e:
-        print(f"Error downloading image {img_url}: {e}")
-        return None
-
-def get_image_urls(soup, url, folder='downloaded_images'):
-    """Extract image URLs from soup and check if they've already been downloaded"""
-    images = []
-    downloaded_filenames = set()
-    
-    # Get list of already downloaded files
-    if os.path.exists(folder):
-        downloaded_filenames = set(os.listdir(folder))
-    
-    # Find all image tags and extract their URLs and alt text
-    if not soup:
-        print("No soup object provided.")
-        return images
-    
-    seen_urls = set()  # Track URLs we've already seen in this page
-    
-    for img in soup.find_all('img'):
-        img_url = img.get('src')
-        
-        if not img_url:
-            continue
-            
-        # Handle relative URLs
-        if img_url.startswith('/'):
-            img_url = url.rstrip('/') + img_url
-        # Handle protocol-relative URLs
-        elif img_url.startswith('//'):
-            img_url = 'https:' + img_url
-        elif not (img_url.startswith('http://') or img_url.startswith('https://')):
-            img_url = url.rstrip('/') + '/' + img_url.lstrip('/')
-            
-        # Skip if we've seen this URL before
-        if img_url in seen_urls:
-            print(f"Skipping duplicate image URL: {img_url}")
-            continue
-        
-        seen_urls.add(img_url)
-        
-        # Check if image is already downloaded by comparing filenames
-        filename = os.path.basename(urlparse(img_url).path)
-        if not filename:
-            filename = f"image_{hash(img_url)}.jpg"
-            
-        if filename in downloaded_filenames:
-            print(f"Image already downloaded: {filename}")
-            continue
-            
-        # Add the image to our list
-        img_alt = img.get('alt', '')
-        images.append({'url': img_url, 'alt': img_alt})
-    
-    return images
 
 def get_all_html_text(url):
     headers = header()
@@ -136,24 +282,19 @@ def get_all_html_text(url):
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             text_content =  soup.get_text(separator=' ', strip=True)
-
-            #get all images from the website
-            
-            images = get_image_urls(soup, url)
-            if not images:
-                print("No images found on the page.")
-                images = []
             
             return {
                 'text': text_content,
-                'images': images
             }
         else:
             print(f"Failed to retrieve the page. Status code: {response.status_code}")
             return None
             
-    except requests.exceptions.ConnectionError:
-        print(f"Failed to connect to {url}. The website may be down or the URL might be invalid.")
+    except requests.exceptions.ConnectionError as e:
+        if isinstance(e.args[0], requests.packages.urllib3.exceptions.NewConnectionError) or "getaddrinfo failed" in str(e):
+            print(f"Site can't be reached: {url}")
+        else:
+            print(f"Failed to connect to {url}. The website may be down or the URL might be invalid.")
         return None
     except requests.exceptions.Timeout:
         print(f"Request to {url} timed out. The server is taking too long to respond.")
@@ -162,12 +303,14 @@ def get_all_html_text(url):
         print(f"Too many redirects while trying to access {url}.")
         return None
     except requests.exceptions.RequestException as e:
-        print(f"An error occurred while requesting {url}: {e}")
+        if "getaddrinfo failed" in str(e) or isinstance(e.__cause__, socket.gaierror):
+            print(f"Site can't be reached: {url}")
+        else:
+            print(f"An error occurred while requesting {url}: {e}")
         return None
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
-
 
 def save_text_to_file(text, filename, append=True, folder='downloaded_texts'):
     """Save the provided text to a text file in the specified folder."""
@@ -186,7 +329,7 @@ def save_text_to_file(text, filename, append=True, folder='downloaded_texts'):
         counter = 1
         
         file_path = os.path.join(folder, filename)
-        while os.path.exists(file_path) and not append:
+        while os.path.exists(file_path):
             # If file exists and we're not appending, create a new filename
             filename = f"{base_name}_{counter}{extension}"
             file_path = os.path.join(folder, filename)
@@ -268,93 +411,168 @@ def get_all_nav_links(url):
         print(f"An error occurred while requesting {url}: {e}")
         return None
 
+def fetch_journal_name_url_pairs(excel_file, name_col="Journal Name", url_col="Website URL", status_col="Status", number_col="numbers"):
+    """
+    Reads an Excel file and returns a list of dictionaries with Journal Name and URL,
+    excluding rows where Status column equals "Done".
+    Each dictionary has keys: 'Journal Name' and 'Website URL'.
+    """
+    df = pd.read_excel(excel_file)
+    
+    # Count skipped rows due to status before filtering
+    skipped_count = 0
+    if status_col in df.columns:
+        skipped_count = df[df[status_col].fillna("").str.lower() == "done"].shape[0]
+        print(f"Skipping {skipped_count} rows with status 'Done'")
+    
+    # Drop rows where either required column is missing
+    df = df.dropna(subset=[name_col, url_col])
+    
+    # Filter out rows where Status is "Done"
+    if status_col in df.columns:
+        df = df[df[status_col].fillna("").str.lower() != "done"]
+    
+    # Build the list of dicts
+    pairs = []
+    for _, row in df.iterrows():
+        pair = {name_col: row[name_col], url_col: row[url_col]}
+        if number_col in df.columns and not pd.isna(row[number_col]):
+            pair["number"] = row[number_col]
+            print(f"Fetching website #{row[number_col]}: {row[name_col]}")
+        pairs.append(pair)
+    
+    return pairs
 
-
-# get all the links in the navigation bar
-url = "http://aocrj.org/"    
-nav_list = get_all_nav_links(url)
-texts = []
-
-if nav_list:
-    print(f"Found {len(nav_list)} navigation links to process")      
-
-# Process each navigation link with proper rate limiting
-processed_urls = set()  # Track URLs we've already processed
-counter = 1
-for i, nav in enumerate(nav_list):
-    nav_url = nav['Website URL']
-    
-    # Skip if we've already processed this URL
-    if nav_url in processed_urls:
-        print(f"Skipping already processed URL: {nav_url}")
-        continue
-        
-    print(f"\n[{i+1}/{len(nav_list)}] Processing: {nav['Journal Name']} ({nav_url})")
-    
-    # Check robots.txt before scraping
-    if not is_allowed_by_robots(nav_url):
-        print(f"Skipping {nav_url} (disallowed by robots.txt)")
-        continue
-    
-    # Add random delay between requests (2-5 seconds)
-    delay = random.uniform(2, 5)
-    print(f"Waiting {delay:.2f} seconds before next request...")
-    time.sleep(delay)
-    
-    
+def update_journal_status(excel_file, journal_name, status="Done", name_col="Journal Name", status_col="Status"):
     try:
-        
-        content = get_all_html_text(nav_url)
-        # Add URL as context before the content for better organization
-        if content and 'text' in content:
-            content_text = f"SOURCE URL: {nav_url}\n{content['text']}\n\n"
-            content['text'] = content_text
-        texts.append(content['text'])
-        processed_urls.add(nav_url)
-        
-        if content:
-            
+        if not os.path.exists(excel_file):
+            print(f"Excel file {excel_file} does not exist")
+            return False
 
-            print(f"Successfully retrieved content from {nav_url}")
-            # Process the content as needed
-            text_length = len(content['text']) if 'text' in content else 0
-            image_count = len(content['images']) if 'images' in content else 0
-            print(f"  - Text length: {text_length} characters")
-            print(f"  - Images found: {image_count}")
-            
-            # Optional: Download images with additional delays
-            if 'images' in content and content['images']:
-                print(f"  - Would download {len(content['images'])} images ")
-            # Download images 
-                for img in content['images']:  
-                    img_url = img['url']
-                    saved_path = download_image(img_url)
-                    if saved_path:
-                        if saved_path == "duplicate":
-                            print(f" Image already exists: {img_url}")
-                        else:
-                            print(f" Image saved to: {saved_path}")
-                    else:
-                        print(f"Failed to download image: {img_url}")
-
-                    time.sleep(1)  # 1 second between image downloads
-        else:
-            print(f"Failed to retrieve content from {nav_url}")
+        df = pd.read_excel(excel_file)
         
-        # Implement exponential backoff for errors
-        if i > 0 and i % 10 == 0:
-            longer_delay = random.uniform(10, 20)
-            print(f"Taking a longer break after 10 requests: {longer_delay:.2f} seconds")
-            time.sleep(longer_delay)
-            
+        # Handle missing values in the name column before conversion
+        df[name_col] = df[name_col].fillna("")
+        
+        # Normalize whitespace and case for matching
+        df[name_col] = df[name_col].astype(str).str.strip()
+        journal_name = str(journal_name).strip()
+
+        if status_col not in df.columns:
+            df[status_col] = ""
+
+        df[status_col] = df[status_col].fillna("").astype(str)
+
+        mask = df[name_col] == journal_name
+        print(f"Looking for journal name: '{journal_name}'")
+        print(f"Mask result: {mask}")
+        print("Any match?", any(mask))
+
+        if not any(mask):
+            print(f"Journal '{journal_name}' not found in the Excel file")
+            return False
+
+        df.loc[mask, status_col] = status
+        df.to_excel(excel_file, index=False)
+        print(f"Updated status of '{journal_name}' to '{status}'")
+        return True
+
     except Exception as e:
-        print(f"Error processing {nav_url}: {e}")
+        print(f"Error updating journal status: {e}")
+        return False
+
+if __name__ == "__main__":
+    # Example usage of the functions
+    journal_list_excel = 'journal_list.xlsx'  # Path to your Excel file with journal names and URLs
+    journal_data_excel = 'journal_data.xlsx'  # Path to save the journal data
+  
+    # Fetch journal name and URL pairs from the Excel file
+    journal_list = fetch_journal_name_url_pairs(journal_list_excel)
+    ten_only = journal_list[:2]  # Get only the first 10 entries
+
+    print(f"Total journals found: {len(ten_only)}")
+
+    print("First 10 Journal Entries:")
+    for journal in ten_only:
+        print(f"Journal Name: {journal['Journal Name']}, Website URL: {journal['Website URL']}")
+
+    # get all the links in the navigation bar
+
+    for url in ten_only:
+        journal_name = url['Journal Name']
+        website_url = url['Website URL']
+
+        print("\n\n")
+        print(f"Processing: {journal_name} ({website_url})")
+        nav_list = get_all_nav_links(website_url)
+        texts = []
+
+        if nav_list:
+            print(f"Found {len(nav_list)} navigation links to process")      
+
+        # Process each navigation link with proper rate limiting
+        processed_urls = set()  # Track URLs we've already processed
+        counter = 1
+
+        if not nav_list:
+            print("cannot find page or content is not journal related")
+            save_text_to_file(['NONE'], journal_name, append=True, folder='downloaded_texts')
+            save_json_to_excel(journal_name, website_url, excel_name=journal_data_excel, folder='downloaded_texts')
+            update_journal_status(journal_list_excel, journal_name, status="Done", name_col="Journal Name", status_col="Status")
+            continue
+
+        for i, nav in enumerate(nav_list):
+            nav_url = nav['Website URL']
+            
+            # Skip if we've already processed this URL
+            if nav_url in processed_urls:
+                print(f"Skipping already processed URL: {nav_url}")
+                continue
+                
+            print(f"\n[{i+1}/{len(nav_list)}] Processing: {nav['Journal Name']} ({nav_url})")
+            
+            delay = random.uniform(2, 5)
+            print(f"Waiting {delay:.2f} seconds before next request...")
+            time.sleep(delay)
+            
+            
+            try:
+                
+                content = get_all_html_text(nav_url)
+                # Add URL as context before the content for better organization
+                if content and 'text' in content:
+                    content_text = f"SOURCE URL: {nav_url}\n{content['text']}\n\n"
+                    content['text'] = content_text
+                texts.append(content['text'])
+                processed_urls.add(nav_url)
+                
+                if content:
+                    
+
+                    print(f"Successfully retrieved content from {nav_url}")
+                    # Process the content as needed
+                    text_length = len(content['text']) if 'text' in content else 0
+                    print(f"  - Text length: {text_length} characters")
+                    
+                else:
+                    print(f"Failed to retrieve content from {nav_url}")
+                
+                # Implement exponential backoff for errors
+                if i > 0 and i % 10 == 0:
+                    longer_delay = random.uniform(10, 20)
+                    print(f"Taking a longer break after 10 requests: {longer_delay:.2f} seconds")
+                    time.sleep(longer_delay)
+                    
+            except Exception as e:
+                print(f"Error processing {nav_url}: {e}")
 
 
-    
-    counter += 1
-    # if counter > 2:
-    #     print("Processed 2 URLs, exiting to avoid rate limiting issues.")
-    #     break
+            
+            counter += 1
 
-save_text_to_file(texts, 'Name of the Journal')
+        save_text_to_file(texts, journal_name, append=True, folder='downloaded_texts')
+
+        save_json_to_excel(journal_name, website_url, excel_name=journal_data_excel, folder='downloaded_texts')
+        update_journal_status(journal_list_excel, journal_name, status="Done", name_col="Journal Name", status_col="Status")
+
+        time.sleep(2)  # Short delay before processing the next URL
