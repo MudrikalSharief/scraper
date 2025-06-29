@@ -134,8 +134,9 @@ def generate(text, journal_name, website_url):
             contents=contents,
             config=generate_content_config,
         ):
-            print(chunk.text, end="")
-            full_response += chunk.text
+            if chunk.text is not None:
+                print(chunk.text, end="")
+                full_response += chunk.text
     except Exception as e:
         error_message = str(e)
         print(f"\nError during Gemini API call: {e}")
@@ -338,8 +339,12 @@ def get_all_html_text(url):
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            text_content =  soup.get_text(separator=' ', strip=True)
-            
+            text_content = soup.get_text(separator=' ', strip=True)
+            # Limit the text content to 10,000 characters per link
+            max_length = 10000
+            if len(text_content) > max_length:
+                print(f"Text content for {url} exceeds {max_length} characters, truncating.")
+                text_content = text_content[:max_length]
             return {
                 'text': text_content,
             }
