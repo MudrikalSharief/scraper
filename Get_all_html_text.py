@@ -15,6 +15,7 @@ from google.genai import types
 import dotenv
 from dotenv import load_dotenv
 from PIL import Image # Import Pillow
+import sys
 load_dotenv()
 
 #gemini part function ==============================================================================
@@ -136,7 +137,14 @@ def generate(text, journal_name, website_url):
             print(chunk.text, end="")
             full_response += chunk.text
     except Exception as e:
+        error_message = str(e)
         print(f"\nError during Gemini API call: {e}")
+        # Check for resource exhausted (quota/credit limit)
+        if "RESOURCE_EXHAUSTED" in error_message or "quota" in error_message.lower():
+            print("\n")
+            print("Something Happend")
+            
+        sys.exit(1)
 
     return full_response
 
@@ -276,23 +284,27 @@ def save_json_to_excel(journal_name, website_url, excel_name, folder='downloaded
         # Save a blank row with correct defaults
         save_to_excel(get_empty_gemini_row(journal_name, website_url), excel_name)
     else:
-        response = generate(text_content, journal_name, website_url)
-        if response:
-            json_data = extract_json_from_response(response)
-        
-            # Ensure the key fields are populated with provided values if they're missing
-            if json_data:
-                if not json_data.get("Journal Name") or json_data["Journal Name"] == "NONE":
-                    json_data["Journal Name"] = journal_name
-                
-                if not json_data.get("Website URL") or json_data["Website URL"] == "NONE":
-                    json_data["Website URL"] = website_url
+        try:
+            response = generate(text_content, journal_name, website_url)
+            if response:
+                json_data = extract_json_from_response(response)
             
-            if json_data:
-                save_to_excel(json_data, excel_name)
-            else:
-                print("Failed to extract valid JSON data from response")
-                save_to_excel(get_empty_gemini_row(journal_name, website_url),excel_name)
+                # Ensure the key fields are populated with provided values if they're missing
+                if json_data:
+                    if not json_data.get("Journal Name") or json_data["Journal Name"] == "NONE":
+                        json_data["Journal Name"] = journal_name
+                    
+                    if not json_data.get("Website URL") or json_data["Website URL"] == "NONE":
+                        json_data["Website URL"] = website_url
+                
+                if json_data:
+                    save_to_excel(json_data, excel_name)
+                else:
+                    print("Failed to extract valid JSON data from response")
+                    save_to_excel(get_empty_gemini_row(journal_name, website_url),excel_name)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from response: {e}")
+            
             
 # here the function to save the text to a fil=======================================================================
 def header():
@@ -308,6 +320,8 @@ def header():
     return headers
 
 def get_all_html_text(url):
+    
+
     headers = header()
     headers.update({
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -396,6 +410,7 @@ def save_text_to_file(text, filename, append=True, folder='downloaded_texts'):
         return None
 
 def get_all_nav_links(url):
+    print("flag1")
     headers = header()
     headers.update({
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -408,7 +423,7 @@ def get_all_nav_links(url):
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        
+        print("flag2")
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             nav_links = []
@@ -417,41 +432,49 @@ def get_all_nav_links(url):
 
                 if a_tag and 'href' in a_tag.attrs:
                     href = a_tag['href']
-                    
+                    # ...existing code...
                     if href.startswith('http'):
-                        # If the link is absolute, use it as is
                         href = href
                     else:
-                        # Handle relative URLs
                         if href.startswith('/'):
-                            # Remove trailing slash from base URL if the href already has a leading slash
                             parsed_url = urlparse(url)
                             base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
                             href = base_url + href
                         elif not href.startswith(('http://', 'https://')):
-                            # Handle relative paths without leading slash
                             parsed_url = urlparse(url)
                             base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
                             href = f"{base_url}/{href.lstrip('/')}"
-                            
-                    if href in nav_links:
+
+
+                    # Skip unwanted links: pdf, images, gifs, videos, and certain keywords
+                    skip_suffixes = [
+                        '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+                        '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.mp3', '.wav', '.ogg', '.webm'
+                    ]
+                    skip_keywords = ['login', 'signup', 'register', 'subscribe']
+                    href_lower = href.lower()
+                    if any(href_lower.endswith(suffix) for suffix in skip_suffixes) or any(keyword in href_lower for keyword in skip_keywords):
+                        print(f"Skipping unwanted link: {href}")
+                        continue
+
+                    # Prevent duplicates
+                    if href in [link['Website URL'] for link in nav_links]:
                         print(f"Skipping duplicate link: {href}")
                         continue
                     texts = (a_tag.text.strip() if a_tag else 'NONE')
-                    # Append the link and its text to the list
                     print(f"Journal Name: {texts}, Website URL: {href}")
                     nav_links.append({
-                    'Journal Name': texts,
-                    'Website URL': href
+                        'Journal Name': texts,
+                        'Website URL': href
                     })
-
-            return nav_links[:30]  # Limit to the first 30 links
+            print("flag3")
+            return nav_links[:30]
         else:
             print(f"Failed to retrieve the page. Status code: {response.status_code}")
             return None
-            
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"An error occurred while requesting {url}: {e}")
+        print("flag4")
         return None
 
 def fetch_journal_name_url_pairs(excel_file, name_col="Journal Name", url_col="Website URL", status_col="Status", number_col="numbers"):
@@ -533,7 +556,7 @@ if __name__ == "__main__":
   
     # Fetch journal name and URL pairs from the Excel file
     journal_list = fetch_journal_name_url_pairs(journal_list_excel)
-    ten_only = journal_list[:100]  # Get only the first 10 entries
+    ten_only = journal_list[:300]  # Get only the first 10 entries
     max_nav = 30  # Set the maximum number of entries to process
     print(f"Total journals found: {len(ten_only)}")
 
