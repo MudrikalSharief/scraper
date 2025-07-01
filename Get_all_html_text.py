@@ -21,133 +21,153 @@ load_dotenv()
 #gemini part function ==============================================================================
 
 
-
-
 def generate(text, journal_name, website_url):
-    """Generate content using only text (no images)"""
-    client = genai.Client(
-        api_key=os.environ.get("GeminiKey"),
-    )
-
-    prompt_part1 = f"""
-    You are an expert AI Journal Scraper and Data Extractor. Your task is to analyze the provided text from a journal's website and extract specific information about it.
-
-    Your goal is to fill in the details for the following fields. For fields with predefined choices, you MUST select one of the provided options. If information for a field is not explicitly found or cannot be confidently inferred from the text, mark its value as \"Unknown\" or \"Not Applicable\" where specified.
-
-    Present the extracted information in a structured JSON format.
-
-    ---
-
-    **
-    {text}
-    **
-
-    ---
-
-    **Extraction Fields and Rules:**
-    """
-
-    json_template = f"""```json
-    {{
-      "Journal Name": "{journal_name}",
-      "Publisher Name": "...",
-      "ISSN": "...",
-      "Website URL": "{website_url}",
-      "Editorial Board Members": "...",
-      "Peer Review Process": "...",
-      "Publishing Model": "...",
-      "Publication Fees/Article Processing Fees": "...",
-      "Publication Frequency": "...",
-      "DOI Availability": "...",
-      "Indexing": "...",
-      "Editorial Process Transparency": "...",
-      "Journal's Scope & Aims": "...",
-      "Calls for Papers (CFPs)": "...",
-      "Year Established": "...",
-      "Journal's Acceptance Rate": "...",
-      "Publication Days": "...",
-      "Cite Score": "...",
-      "Impact Factor": "...",
-      "Include Author Guidelines": "...",
-      "Submission Process": "...",
-      "Publication Ethics": "...",
-      "University Affiliation": "...",
-      "Name of University": "..."
-    }}```"""
-
-    extraction_rules = """
-    1.  **Journal Name:** The full name of the journal.
-    2.  **Publisher Name:** The name of the organization that publishes the journal. if not mentioned, state \"NONE\".
-    3.  **ISSN:** The International Standard Serial Number (can be print ISSN or online ISSN just select one and dont stae if online or printed just the number), if not found state NONE.
-    4.  **Website URL:** The primary URL of the journal's website (this should be the URL the input text came from).
-    5.  **Editorial Board Members:** (Listed, Unknown) - Is a list of editorial board members explicitly available and clearly presented if yes then put listed else put unknown?
-    6.  **Peer Review Process:** (Single Blind, Double Blind, Open Peer Review, Unknown) - How does the journal describe its peer review process? if not mentioned or unclear, state \"Unknown\".
-    7.  **Publishing Model:** (Open Access, Subscription, Unknown) - How does the journal make its content available?
-    8.  **Publication Fees/Article Processing Fees:** The amount or range of fees charged to authors. If \"No fees,\" state \"0\". If present but specific amount unknown, state \"-1\". If not mentioned, state \"-1\" please only get payment with dollar or $ if not in dollar please convert it to dollar. type it like this $300.
-    9.  **Publication Frequency:** (Weekly, Monthly, Twice a month, Quarterly, Twice every quarter, Yearly, Twice a year, 3 times a year, Unknown) - How often does the journal publish new issues?
-    10. **DOI Availability:** (Yes, No, Unknown) - Does the journal explicitly mention assigning DOIs (Digital Object Identifiers) to its articles?
-    11. **Indexing:** (Scopus, Web of Science, DOAJ, Google, Others, Unknown) - put only 1 prioritize the order given explicitly mentioned indexing services. If \"Others\" is chosen state \"Others\", state \"Unknown\".
-    12. **Editorial Process Transparency:** (Listed, Unknown) - Is the editorial process (beyond peer review) clearly described and transparently presented on the website?
-    13. **Journal's Scope & Aims:** (Domain-specific, Multi-disciplinary, Broad, Unknown) - Select the journal's stated scope and aims from the following options: Domain-specific, Multi-disciplinary, Broad, Unknown.
-    14. **Calls for Papers (CFPs):** (Weekly, Monthly, Twice a Month, Quarterly, Twice every Quarter, Yearly, Twice a Year, 3 Times a Year, Unknown) - How often does the journal issue calls for papers?
-    15. **Year Established:** The year the journal was founded or first published. if not stated, state \"-1\". If the year is mentioned but not specific, use \"-1\". If the journal is newly established and the year is not mentioned, also use \"-1\".
-    16. **Journal's Acceptance Rate:** The stated acceptance rate (e.g., \"30%\"). If not stated, \"Unknown\".
-    17. **Publication Days:** The typical number of days from submission to publication, if separated please add them. If not stated or cannot be confidently inferred, \"Unknown\".
-    18. **Cite Score:** The journal's stated CiteScore. If not stated, state \"-1\".
-    19. **Impact Factor:** find the journal's stated Impact Factor, if not stated state\"-1\".
-    20. **Include Author Guidelines:** (Yes, No, Unknown) - Are clear guidelines for authors explicitly provided on the website?
-    21. **Submission Process:** (System, Email, Unknown) - How do authors submit their manuscripts? (e.g., through an online submission system, via email).
-    22. **Publication Ethics:** (Listed, Unknown) - Does the journal have a clearly stated section on publication ethics or adherence to ethical guidelines (e.g., COPE)?
-    23. **University Affiliation:** (Yes, No, Unknown) - Does the journal claim or show a clear affiliation with a university?
-    24. **Name of University:** (If \"University Affiliation\" is \"Yes\", state the full name of the university just put 1 university incase there are more than 1  . Otherwise, put \"NONE\").
-
-    ---
-
-    **Output Format (JSON):**"""
-
-    parts = [
-        types.Part(text=prompt_part1),
-        types.Part(text=extraction_rules),
-        types.Part(text=json_template)
+    """Generate content using only text (no images), switching API keys if quota is reached."""
+    # List your Gemini API keys here (from environment or hardcoded)
+    api_keys = [
+        os.environ.get("GeminiKey"),
+        os.environ.get("GeminiKey2"),
+        os.environ.get("GeminiKey3"),
+        os.environ.get("GeminiKey4"),
+        # Add more keys as needed
     ]
+    last_error = None
 
-    model = "gemini-2.5-flash"
+    for api_key in api_keys:
+        if not api_key:
+            continue  # Skip empty keys
+        print(f"Using API key #{api_keys.index(api_key) + 1}...")  # Print the index + 1 of the current API key
+        
+        client = genai.Client(api_key=api_key)
 
-    contents = [
-        types.Content(
-            role="user",
-            parts=parts
-        ),
-    ]
+        prompt_part1 = f"""
+        You are an expert AI Journal Scraper and Data Extractor. Your task is to analyze the provided text from a journal's website and extract specific information about it.
 
-    generate_content_config = types.GenerateContentConfig(
-        thinking_config = types.ThinkingConfig(
-            thinking_budget=0,
-        ),
-        response_mime_type="text/plain",
-    )
+        Your goal is to fill in the details for the following fields. For fields with predefined choices, you MUST select one of the provided options. If information for a field is not explicitly found or cannot be confidently inferred from the text, mark its value as "Unknown" or "Not Applicable" where specified.
 
-    full_response = ""
-    try:
-        for chunk in client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        ):
-            if chunk.text is not None:
-                print(chunk.text, end="")
-                full_response += chunk.text
-    except Exception as e:
-        error_message = str(e)
-        print(f"\nError during Gemini API call: {e}")
-        # Check for resource exhausted (quota/credit limit)
-        if "RESOURCE_EXHAUSTED" in error_message or "quota" in error_message.lower():
-            print("\n")
-            print("Something Happend")
-            
-        sys.exit(1)
+        Present the extracted information in a structured JSON format.
 
-    return full_response
+        ---
+
+        **
+        {text}
+        **
+
+        ---
+
+        **Extraction Fields and Rules:**
+        """
+
+        json_template = f"""```json
+        {{
+          "Journal Name": "{journal_name}",
+          "Publisher Name": "...",
+          "ISSN": "...",
+          "Website URL": "{website_url}",
+          "Editorial Board Members": "...",
+          "Peer Review Process": "...",
+          "Publishing Model": "...",
+          "Publication Fees/Article Processing Fees": "...",
+          "Publication Frequency": "...",
+          "DOI Availability": "...",
+          "Indexing": "...",
+          "Editorial Process Transparency": "...",
+          "Journal's Scope & Aims": "...",
+          "Calls for Papers (CFPs)": "...",
+          "Year Established": "...",
+          "Journal's Acceptance Rate": "...",
+          "Publication Days": "...",
+          "Cite Score": "...",
+          "Impact Factor": "...",
+          "Include Author Guidelines": "...",
+          "Submission Process": "...",
+          "Publication Ethics": "...",
+          "University Affiliation": "...",
+          "Name of University": "..."
+        }}```"""
+
+        extraction_rules = """
+        1.  **Journal Name:** The full name of the journal.
+        2.  **Publisher Name:** The name of the organization that publishes the journal. if not mentioned, state "NONE".
+        3.  **ISSN:** The International Standard Serial Number (can be print ISSN or online ISSN just select one and dont stae if online or printed just the number), if not found state NONE.
+        4.  **Website URL:** The primary URL of the journal's website (this should be the URL the input text came from).
+        5.  **Editorial Board Members:** (Listed, Unknown) - Is a list of editorial board members explicitly available and clearly presented if yes then put listed else put unknown?
+        6.  **Peer Review Process:** (Single Blind, Double Blind, Open Peer Review, Unknown) - How does the journal describe its peer review process? if not mentioned or unclear, state "Unknown".
+        7.  **Publishing Model:** (Open Access, Subscription, Unknown) - How does the journal make its content available?
+        8.  **Publication Fees/Article Processing Fees:** The amount or range of fees charged to authors. If "No fees," state "0". If present but specific amount unknown, state "-1". If not mentioned, state "-1" please only get payment with dollar or $ if not in dollar please convert it to dollar. type it like this $300.
+        9.  **Publication Frequency:** (Weekly, Monthly, Twice a month, Quarterly, Twice every quarter, Yearly, Twice a year, 3 times a year, Unknown) - How often does the journal publish new issues?
+        10. **DOI Availability:** (Yes, No, Unknown) - Does the journal explicitly mention assigning DOIs (Digital Object Identifiers) to its articles?
+        11. **Indexing:** (Scopus, Web of Science, DOAJ, Google, Others, Unknown) - put only 1 prioritize the order given explicitly mentioned indexing services. If "Others" is chosen state "Others", state "Unknown".
+        12. **Editorial Process Transparency:** (Listed, Unknown) - Is the editorial process (beyond peer review) clearly described and transparently presented on the website?
+        13. **Journal's Scope & Aims:** (Domain-specific, Multi-disciplinary, Broad, Unknown) - Select the journal's stated scope and aims from the following options: Domain-specific, Multi-disciplinary, Broad, Unknown.
+        14. **Calls for Papers (CFPs):** (Weekly, Monthly, Twice a Month, Quarterly, Twice every Quarter, Yearly, Twice a Year, 3 Times a Year, Unknown) - How often does the journal issue calls for papers?
+        15. **Year Established:** The year the journal was founded or first published. if not stated, state "-1". If the year is mentioned but not specific, use "-1". If the journal is newly established and the year is not mentioned, also use "-1".
+        16. **Journal's Acceptance Rate:** The stated acceptance rate (e.g., "30%"). If not stated, "Unknown".
+        17. **Publication Days:** The typical number of days from submission to publication, if separated please add them. If not stated or cannot be confidently inferred, "Unknown".
+        18. **Cite Score:** The journal's stated CiteScore. If not stated, state "-1".
+        19. **Impact Factor:** find the journal's stated Impact Factor, if not stated state"-1".
+        20. **Include Author Guidelines:** (Yes, No, Unknown) - Are clear guidelines for authors explicitly provided on the website?
+        21. **Submission Process:** (System, Email, Unknown) - How do authors submit their manuscripts? (e.g., through an online submission system, via email).
+        22. **Publication Ethics:** (Listed, Unknown) - Does the journal have a clearly stated section on publication ethics or adherence to ethical guidelines (e.g., COPE)?
+        23. **University Affiliation:** (Yes, No, Unknown) - Does the journal claim or show a clear affiliation with a university?
+        24. **Name of University:** (If "University Affiliation" is "Yes", state the full name of the university just put 1 university incase there are more than 1  . Otherwise, put "NONE").
+
+        ---
+
+        **Output Format (JSON):**"""
+
+        parts = [
+            types.Part(text=prompt_part1),
+            types.Part(text=extraction_rules),
+            types.Part(text=json_template)
+        ]
+
+        model = "gemini-2.5-flash"
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=parts
+            ),
+        ]
+
+        generate_content_config = types.GenerateContentConfig(
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=0,
+            ),
+            response_mime_type="text/plain",
+        )
+
+        full_response = ""
+        try:
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if chunk.text is not None:
+                    print(chunk.text, end="")
+                    full_response += chunk.text
+            return full_response  # Success, return response
+        except Exception as e:
+            error_message = str(e)
+            print(f"\nError during Gemini API call with current key: {e}")
+            # Check for resource exhausted (quota/credit limit)
+            if "RESOURCE_EXHAUSTED" in error_message or "quota" in error_message.lower():
+                print("Quota exhausted for this API key, trying next key...")
+                last_error = error_message
+                continue  # Try next key
+            else:
+                # For other errors, break and return
+                print("Non-quota error, aborting further attempts.")
+                break
+
+    # If all keys fail
+    print("All API keys failed or quota exhausted.")
+    if last_error:
+        print(f"Last error: {last_error}")
+    sys.exit("Exiting due to API errors. Please check your API keys or quota limits.")
+    return None
 
 def extract_json_from_response(response_text):
     """Extract JSON from the Gemini response text"""
@@ -554,7 +574,7 @@ def update_journal_status(excel_file, journal_name, status="Done", name_col="Jou
 
 if __name__ == "__main__":
 
-    
+
     # Example usage of the functions
     journal_list_excel = 'journal_list.xlsx'  # Path to your Excel file with journal names and URLs
     journal_data_excel = 'journal_data.xlsx'  # Path to save the journal data

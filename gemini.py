@@ -58,6 +58,7 @@ load_dotenv()
 #     return images
 
 
+
 def generate(text):
     """Generate content using only text (no images)"""
     client = genai.Client(
