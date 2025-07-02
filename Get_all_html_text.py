@@ -581,7 +581,7 @@ if __name__ == "__main__":
   
     # Fetch journal name and URL pairs from the Excel file
     journal_list = fetch_journal_name_url_pairs(journal_list_excel)
-    ten_only = journal_list[:300]  # Get only the first 10 entries
+    ten_only = journal_list[:1000]  # Get only the first 10 entries
     max_nav = 30  # Set the maximum number of entries to process
     print(f"Total journals found: {len(ten_only)}")
 
